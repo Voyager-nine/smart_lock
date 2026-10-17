@@ -18,5 +18,6 @@
 extern uint8_t refresh_lcd;
 extern uint8_t password_len;
 extern uint8_t password_buf[];
+extern uint8_t mode_flag;
 
 #endif /* DRIVER_MYDEFINE_H_ */

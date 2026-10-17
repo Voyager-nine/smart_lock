@@ -4,8 +4,13 @@ uint8_t key_down,key_up,key_old,key_val;
 uint8_t password_len = 0;
 uint8_t password_buf[6] = {0};
 uint8_t password[6] = {'1', '2', '3', '4', '5', '6'};
+uint8_t admin_password[6] = {'2', '2', '2', '3', '3', '3'};
 uint8_t refresh_lcd = 0;
 static uint8_t password_error_count = 0;
+static uint8_t admin_error_count = 0;
+
+uint8_t mode_flag = 0; // 0:开锁密码 1:管理员模式
+static uint8_t admin_verified_flag = 0; // 0:验证管理员密码 1:输入新密码
 
 /*
  * 矩阵按键 连接情况
@@ -130,7 +135,7 @@ void key_task()
         return;
     }
 
-    if(key_down != 16)
+    if(key_down != 16 && key_down != 4)
     {
         voice_play(VOICE_TRACK_KEY);
     }
@@ -148,8 +153,14 @@ void key_task()
             break;
 
         case 4:
-            password_len = 0;
-            refresh_lcd = 1;
+            if(mode_flag == 0)
+            {
+                mode_flag = 1;
+                admin_verified_flag = 0;
+                password_len = 0;
+                refresh_lcd = 1;
+                voice_play(VOICE_TRACK_ADMIN_ENTER);
+            }
             break;
 
         case 5:
@@ -200,33 +211,65 @@ void key_task()
             break;
 
         case 16:
-            if(password_len == 6)
+            if(mode_flag == 1 && admin_verified_flag == 1)
             {
                 for(i = 0; i < 6; i++)
                 {
-                    if(password_buf[i] != password[i])
-                    {
+                    password[i] = password_buf[i];
+                }
+                mode_flag = 0;
+                admin_verified_flag = 0;
+                voice_play(VOICE_TRACK_PASSWORD_SAVED);
+            }
+            else
+            {
+                for(i = 0; i < 6; i++)
+                {
+                    if(password_buf[i] != (mode_flag == 1 ?
+                                           admin_password[i] : password[i]))
                         break;
-                    }
                 }
 
                 if(i == 6)
                 {
+                    // 任一密码验证成功后，错误次数重新累计
                     password_error_count = 0;
-                    lock_flag = 0;
-                    voice_play(VOICE_TRACK_PASSWORD_CORRECT);
-                }
-                else
-                {
-                    if(++password_error_count >= 3)
+                    admin_error_count = 0;
+                    if(mode_flag == 1)
                     {
-                        password_error_count = 0;
-                        password_lock_flag = 1;
-                        voice_play(VOICE_TRACK_PASSWORD_LOCKED);
+                        admin_verified_flag = 1;
+                        voice_play(VOICE_TRACK_ADMIN_CORRECT);
                     }
                     else
                     {
-                        voice_play(VOICE_TRACK_PASSWORD_WRONG);
+                        lock_flag = 0;
+                        voice_play(VOICE_TRACK_PASSWORD_CORRECT);
+                    }
+                }
+                else
+                {
+                    if(mode_flag == 1)
+                    {
+                        if(++admin_error_count >= 3)
+                        {
+                            admin_error_count = 0;
+                            admin_verified_flag = 0;
+                            password_lock_flag = 1;
+                            voice_play(VOICE_TRACK_ADMIN_LOCKED);
+                        }
+                        else
+                            voice_play(VOICE_TRACK_ADMIN_WRONG);
+                    }
+                    else
+                    {
+                        if(++password_error_count >= 3)
+                        {
+                            password_error_count = 0;
+                            password_lock_flag = 1;
+                            voice_play(VOICE_TRACK_PASSWORD_LOCKED);
+                        }
+                        else
+                            voice_play(VOICE_TRACK_PASSWORD_WRONG);
                     }
                 }
             }
