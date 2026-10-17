@@ -9,8 +9,17 @@ uint8_t refresh_lcd = 0;
 static uint8_t password_error_count = 0;
 static uint8_t admin_error_count = 0;
 
-uint8_t mode_flag = 0; // 0:开锁密码 1:管理员模式
-static uint8_t admin_verified_flag = 0; // 0:验证管理员密码 1:输入新密码
+uint8_t mode_flag = 0; // 0:开锁 1:修改密码 2:添加卡片
+static uint8_t admin_verified_flag = 0; // 0:验证管理员密码 1:执行管理操作
+
+#define MODE_UNLOCK 0
+#define MODE_CHANGE_PASSWORD 1
+#define MODE_ADD_CARD 2
+#define CARD_MAX_COUNT 10
+#define CARD_ID_LEN 6
+
+static uint8_t card_ids[CARD_MAX_COUNT][CARD_ID_LEN];
+static uint8_t card_count = 0;
 
 /*
  * 矩阵按键 连接情况
@@ -129,13 +138,17 @@ void key_task()
         return;
     }
 
+    // 管理员验证后等待刷卡，此时按键不改变录卡状态
+    if(mode_flag == MODE_ADD_CARD && admin_verified_flag)
+        return;
+
     // 不足6位时忽略确认，保留已输入密码
     if(key_down == 16 && password_len != 6)
     {
         return;
     }
 
-    if(key_down != 16 && key_down != 4)
+    if(key_down != 16 && key_down != 4 && key_down != 12)
     {
         voice_play(VOICE_TRACK_KEY);
     }
@@ -153,9 +166,9 @@ void key_task()
             break;
 
         case 4:
-            if(mode_flag == 0)
+            if(mode_flag == MODE_UNLOCK)
             {
-                mode_flag = 1;
+                mode_flag = MODE_CHANGE_PASSWORD;
                 admin_verified_flag = 0;
                 password_len = 0;
                 refresh_lcd = 1;
@@ -187,6 +200,15 @@ void key_task()
             break;
 
         case 12:
+            if(mode_flag == MODE_UNLOCK)
+            {
+                mode_flag = MODE_ADD_CARD;
+                admin_verified_flag = 0;
+                password_len = 0;
+                refresh_lcd = 1;
+                uart2_discard_frame();
+                voice_play(VOICE_TRACK_CARD_ENTER);
+            }
             break;
 
         case 13:
@@ -211,13 +233,13 @@ void key_task()
             break;
 
         case 16:
-            if(mode_flag == 1 && admin_verified_flag == 1)
+            if(mode_flag == MODE_CHANGE_PASSWORD && admin_verified_flag == 1)
             {
                 for(i = 0; i < 6; i++)
                 {
                     password[i] = password_buf[i];
                 }
-                mode_flag = 0;
+                mode_flag = MODE_UNLOCK;
                 admin_verified_flag = 0;
                 voice_play(VOICE_TRACK_PASSWORD_SAVED);
             }
@@ -225,7 +247,7 @@ void key_task()
             {
                 for(i = 0; i < 6; i++)
                 {
-                    if(password_buf[i] != (mode_flag == 1 ?
+                    if(password_buf[i] != (mode_flag != MODE_UNLOCK ?
                                            admin_password[i] : password[i]))
                         break;
                 }
@@ -235,10 +257,16 @@ void key_task()
                     // 任一密码验证成功后，错误次数重新累计
                     password_error_count = 0;
                     admin_error_count = 0;
-                    if(mode_flag == 1)
+                    if(mode_flag != MODE_UNLOCK)
                     {
                         admin_verified_flag = 1;
-                        voice_play(VOICE_TRACK_ADMIN_CORRECT);
+                        if(mode_flag == MODE_ADD_CARD)
+                        {
+                            uart2_discard_frame();
+                            voice_play(VOICE_TRACK_CARD_ADMIN_CORRECT);
+                        }
+                        else
+                            voice_play(VOICE_TRACK_ADMIN_CORRECT);
                     }
                     else
                     {
@@ -248,7 +276,7 @@ void key_task()
                 }
                 else
                 {
-                    if(mode_flag == 1)
+                    if(mode_flag != MODE_UNLOCK)
                     {
                         if(++admin_error_count >= 3)
                         {
@@ -280,4 +308,77 @@ void key_task()
         default:
             break;
     }
+}
+
+void card_proc(void)
+{
+    uint8_t frame[UART2_FRAME_LEN];
+    uint8_t checksum = 0;
+    uint8_t expected_checksum;
+    uint8_t i, j;
+
+    if(uart2_read_frame(frame) == 0)
+        return;
+
+    // 锁定期间及管理员密码验证阶段，刷卡操作无效
+    if(password_lock_flag || (mode_flag != MODE_UNLOCK &&
+       (mode_flag != MODE_ADD_CARD || admin_verified_flag == 0)))
+        return;
+
+    for(i = 0; i < UART2_FRAME_LEN - 1; i++)
+        checksum ^= frame[i];
+    expected_checksum = (uint8_t)(checksum ^ 0xFF);
+
+    if(frame[0] != 0x04 || frame[1] != UART2_FRAME_LEN ||
+       frame[2] != 0x02 || frame[3] != 0x30 ||
+       frame[11] != expected_checksum)
+        return;
+
+    if(frame[4] != 0x00)
+    {
+        voice_play(VOICE_TRACK_CARD_WRONG);
+        return;
+    }
+
+    // 卡类型2字节和卡ID4字节一并保存，避免不同卡类型ID相同
+    for(i = 0; i < card_count; i++)
+    {
+        for(j = 0; j < CARD_ID_LEN; j++)
+        {
+            if(card_ids[i][j] != frame[5 + j])
+                break;
+        }
+        if(j == CARD_ID_LEN)
+            break;
+    }
+
+    if(mode_flag == MODE_ADD_CARD)
+    {
+        if(i == card_count && card_count < CARD_MAX_COUNT)
+        {
+            for(j = 0; j < CARD_ID_LEN; j++)
+                card_ids[card_count][j] = frame[5 + j];
+            card_count++;
+        }
+
+        if(i < card_count)
+        {
+            mode_flag = MODE_UNLOCK;
+            admin_verified_flag = 0;
+            voice_play(VOICE_TRACK_CARD_SAVED);
+        }
+        else
+            voice_play(VOICE_TRACK_CARD_WRONG);
+        return;
+    }
+
+    if(i < card_count)
+    {
+        lock_flag = 0;
+        password_len = 0;
+        refresh_lcd = 1;
+        voice_play(VOICE_TRACK_CARD_CORRECT);
+    }
+    else
+        voice_play(VOICE_TRACK_CARD_WRONG);
 }

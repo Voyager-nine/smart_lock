@@ -1,9 +1,67 @@
 #include "uart.h"
 
-volatile uint8_t uart2_rx_data = 0;
-volatile uint8_t uart2_rx_flag = 0;
+static volatile uint8_t uart2_frame[UART2_FRAME_LEN];
+static volatile uint8_t uart2_frame_ready = 0;
+static uint8_t uart2_frame_index = 0;
+static uint32_t uart2_last_byte_ms = 0;
 volatile uint8_t uart3_rx_data = 0;
 volatile uint8_t uart3_rx_flag = 0;
+
+void uart2_receive_byte(uint8_t data)
+{
+    uint32_t now = GetTick();
+
+    if(password_lock_flag)
+    {
+        uart2_frame_index = 0;
+        uart2_frame_ready = 0;
+        return;
+    }
+
+    if(uart2_frame_ready)
+        return;
+
+    // 包内相邻字节间隔过长时丢弃残包
+    if(uart2_frame_index && (uint32_t)(now - uart2_last_byte_ms) > 20)
+        uart2_frame_index = 0;
+    uart2_last_byte_ms = now;
+
+    if(uart2_frame_index == 0 && data != 0x04)
+        return;
+    if(uart2_frame_index == 1 && data != UART2_FRAME_LEN)
+    {
+        uart2_frame_index = (data == 0x04) ? 1 : 0;
+        return;
+    }
+
+    uart2_frame[uart2_frame_index++] = data;
+    if(uart2_frame_index == UART2_FRAME_LEN)
+    {
+        uart2_frame_index = 0;
+        uart2_frame_ready = 1;
+    }
+}
+
+uint8_t uart2_read_frame(uint8_t frame[UART2_FRAME_LEN])
+{
+    uint8_t i;
+
+    if(uart2_frame_ready == 0)
+        return 0;
+
+    for(i = 0; i < UART2_FRAME_LEN; i++)
+        frame[i] = uart2_frame[i];
+    uart2_frame_ready = 0;
+    return 1;
+}
+
+void uart2_discard_frame(void)
+{
+    USART_ITConfig(USART2, USART_IT_RXNE, DISABLE);
+    uart2_frame_ready = 0;
+    uart2_frame_index = 0;
+    USART_ITConfig(USART2, USART_IT_RXNE, ENABLE);
+}
 
 void Usart2_Init(void)
 {

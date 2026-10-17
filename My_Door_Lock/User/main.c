@@ -7,8 +7,7 @@ void USART2_IRQHandler(void)
 {
     if(USART_GetITStatus(USART2, USART_IT_RXNE) != RESET)
     {
-        uart2_rx_data = (uint8_t)USART_ReceiveData(USART2);
-        uart2_rx_flag = 1;
+        uart2_receive_byte((uint8_t)USART_ReceiveData(USART2));
     }
 }
 
@@ -29,7 +28,6 @@ int main(void)
     Delay_Init();
     Millis_Init();
     USART_Printf_Init(115200);
-    Usart2_Init();
 
     TIM2_PWM_Init();//定时器2初始化 输出PWM控制舵机
     lock_proc();//舵机初始化 默认上锁
