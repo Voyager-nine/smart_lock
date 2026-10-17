@@ -6,6 +6,7 @@
  */
 #include "debug.h"
 #include "lcd.h"
+extern const unsigned char gImage_lock_disp[32776];
 #include "font_ascii_16x8.h"
 void  SPI3_IRQHandler(void) __attribute__((interrupt("WCH-Interrupt-fast")));
 
@@ -818,7 +819,39 @@ void LCD_ShowPicture(u16 x,u16 y,u16 length,u16 width,const u8 pic[])
 
 void lcd_task()
 {
+    static uint8_t lock_display_flag = 0;
+    static uint8_t lock_seconds_old = 0;
     uint8_t i;
+    uint8_t seconds = password_lock_seconds();
+    uint8_t digits;
+
+    if(seconds > 0)
+    {
+        if(lock_display_flag == 0)
+        {
+            LCD_Fill(0, 0, LCD_W, LCD_H, WHITE);
+            lock_display_flag = 1;
+            lock_seconds_old = 0;
+        }
+
+        if(seconds != lock_seconds_old)
+        {
+            digits = (seconds >= 10) ? 2 : 1;
+            LCD_Fill((LCD_W - 32) / 2, (LCD_H - 32) / 2,
+                     (LCD_W + 32) / 2, (LCD_H + 32) / 2, WHITE);
+            LCD_ShowIntNum((LCD_W - digits * 16) / 2, (LCD_H - 32) / 2,
+                           seconds, digits, RED, WHITE, 32);
+            lock_seconds_old = seconds;
+        }
+        return;
+    }
+
+    if(lock_display_flag)
+    {
+        lock_display_flag = 0;
+        LCD_ShowPicture(0, 0, LCD_W, LCD_H, gImage_lock_disp + 8);
+        refresh_lcd = 1;
+    }
     if(refresh_lcd == 0)
         return;
 

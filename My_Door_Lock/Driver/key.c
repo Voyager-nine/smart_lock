@@ -3,7 +3,7 @@
 uint8_t key_down,key_up,key_old,key_val;
 uint8_t password_len = 0;
 uint8_t password_buf[6] = {0};
-uint8_t password[6] = {'1', '2', '3', '4', '5', '0'};
+uint8_t password[6] = {'1', '2', '3', '4', '5', '6'};
 uint8_t refresh_lcd = 0;
 static uint8_t password_error_count = 0;
 

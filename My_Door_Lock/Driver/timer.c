@@ -46,6 +46,17 @@ uint32_t GetTick(void)
     return tick_ms;
 }
 
+uint8_t password_lock_seconds(void)
+{
+    uint16_t elapsed_ms = password_lock_ms;
+
+    if(password_lock_flag == 0)
+        return 0;
+
+    // 向上取整，锁定期间显示10到1秒
+    return (PASSWORD_LOCK_TIME_MS - elapsed_ms + 999) / 1000;
+}
+
 void TIM3_IRQHandler(void) __attribute__((interrupt("WCH-Interrupt-fast")));
 void TIM3_IRQHandler(void)
 {
