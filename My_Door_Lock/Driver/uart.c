@@ -82,6 +82,21 @@ void usart1_send_string(const volatile u8* string, u8 len)
     while(USART_GetFlagStatus(USART1, USART_FLAG_TC) == RESET);
 }
 
+void uart6_send_string(u8* string,u8 len)
+{
+    u8 i;
+
+    if(string == 0 || len == 0)
+        return;
+
+    for(i = 0; i < len; i++)
+    {
+        while(USART_GetFlagStatus(UART6, USART_FLAG_TXE) == RESET);
+        USART_SendData(UART6, string[i]);
+    }
+    while(USART_GetFlagStatus(UART6, USART_FLAG_TC) == RESET);
+}
+
 void uart7_send_string(uint8_t* string, uint8_t len)
 {
     uint8_t i;
@@ -107,6 +122,33 @@ volatile uint8_t uart3_rx_data = 0;
 volatile uint8_t uart3_rx_flag = 0;
 volatile uint8_t uart7_rx_data = 0;
 volatile uint8_t uart7_rx_flag = 0;
+static volatile u8 uart6_rx_buffer[128];
+static volatile u8 uart6_rx_head;
+static volatile u8 uart6_rx_tail;
+
+void uart6_receive_byte(u8 data)
+{
+    u8 next = (uart6_rx_head + 1) % sizeof(uart6_rx_buffer);
+
+    if(next == uart6_rx_tail)
+        return;
+    uart6_rx_buffer[uart6_rx_head] = data;
+    uart6_rx_head = next;
+}
+
+u8 uart6_read_bytes(u8* buffer, u8 capacity)
+{
+    u8 count = 0;
+
+    if(buffer == 0)
+        return 0;
+    while(count < capacity && uart6_rx_tail != uart6_rx_head)
+    {
+        buffer[count++] = uart6_rx_buffer[uart6_rx_tail];
+        uart6_rx_tail = (uart6_rx_tail + 1) % sizeof(uart6_rx_buffer);
+    }
+    return count;
+}
 
 void uart2_receive_byte(uint8_t data)
 {
@@ -273,4 +315,42 @@ void Uart7_Init(void)
     NVIC_Init(&NVIC_InitStructure);
 
     USART_Cmd(UART7, ENABLE);
+}
+
+void Uart6_Init(void)
+{
+    GPIO_InitTypeDef GPIO_InitStructure = {0};
+    USART_InitTypeDef USART_InitStructure = {0};
+    NVIC_InitTypeDef NVIC_InitStructure = {0};
+
+    RCC_APB1PeriphClockCmd(RCC_APB1Periph_UART6, ENABLE);
+    RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOC, ENABLE);
+
+    GPIO_InitStructure.GPIO_Pin = UART6_TX_PIN;
+    GPIO_InitStructure.GPIO_Speed = GPIO_Speed_50MHz;
+    GPIO_InitStructure.GPIO_Mode = GPIO_Mode_AF_PP;
+    GPIO_Init(UART6_TX_PORT, &GPIO_InitStructure);
+
+    GPIO_InitStructure.GPIO_Pin = UART6_RX_PIN;
+    GPIO_InitStructure.GPIO_Mode = GPIO_Mode_IN_FLOATING;
+    GPIO_Init(UART6_RX_PORT, &GPIO_InitStructure);
+
+    USART_InitStructure.USART_BaudRate = UART6_BAUDRATE;
+    USART_InitStructure.USART_WordLength = USART_WordLength_8b;
+    USART_InitStructure.USART_StopBits = USART_StopBits_1;
+    USART_InitStructure.USART_Parity = USART_Parity_No;
+    USART_InitStructure.USART_HardwareFlowControl = USART_HardwareFlowControl_None;
+    USART_InitStructure.USART_Mode = USART_Mode_Tx | USART_Mode_Rx;
+
+    USART_Init(UART6, &USART_InitStructure);
+
+    USART_ITConfig(UART6, USART_IT_RXNE, ENABLE);
+
+    NVIC_InitStructure.NVIC_IRQChannel = UART6_IRQn;
+    NVIC_InitStructure.NVIC_IRQChannelPreemptionPriority = 1;
+    NVIC_InitStructure.NVIC_IRQChannelSubPriority = 1;
+    NVIC_InitStructure.NVIC_IRQChannelCmd = ENABLE;
+    NVIC_Init(&NVIC_InitStructure);
+
+    USART_Cmd(UART6, ENABLE);
 }

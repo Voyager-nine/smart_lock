@@ -54,7 +54,7 @@ all: 第六讲.elf secondary-outputs
 
 # 工具调用
 第六讲.elf: $(OBJS) $(USER_OBJS)
-	@	@	riscv-none-embed-gcc -march=rv32imacxw -mabi=ilp32 -msmall-data-limit=8 -msave-restore -Os -fmessage-length=0 -fsigned-char -ffunction-sections -fdata-sections -fno-common -Wunused -Wuninitialized  -g -T "D:\BaiduNetdiskDownload\米醋\May\智能门锁\代码\第六讲\Ld\Link.ld" -nostartfiles -Xlinker --gc-sections -Wl,-Map,"第六讲.map" --specs=nano.specs --specs=nosys.specs -o "第六讲.elf" $(OBJS) $(USER_OBJS) $(LIBS)
+	@	@	riscv-none-embed-gcc -march=rv32imacxw -mabi=ilp32 -msmall-data-limit=8 -msave-restore -Os -fmessage-length=0 -fsigned-char -ffunction-sections -fdata-sections -fno-common -Wunused -Wuninitialized  -g -T "E:\2_Code\CH32\第六讲\第六讲\Ld\Link.ld" -nostartfiles -Xlinker --gc-sections -Wl,-Map,"第六讲.map" --specs=nano.specs --specs=nosys.specs -o "第六讲.elf" $(OBJS) $(USER_OBJS) $(LIBS)
 	@	@
 第六讲.hex: 第六讲.elf
 	@	riscv-none-embed-objcopy -O ihex "第六讲.elf"  "第六讲.hex"

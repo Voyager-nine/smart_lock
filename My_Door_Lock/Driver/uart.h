@@ -23,6 +23,12 @@
 #define UART7_RX_PORT GPIOC
 #define UART7_RX_PIN GPIO_Pin_3
 
+#define UART6_BAUDRATE 115200
+#define UART6_TX_PORT GPIOC
+#define UART6_TX_PIN GPIO_Pin_0
+#define UART6_RX_PORT GPIOC
+#define UART6_RX_PIN GPIO_Pin_1
+
 extern volatile uint8_t uart3_rx_data;
 extern volatile uint8_t uart3_rx_flag;
 extern volatile uint8_t uart7_rx_data;
@@ -45,5 +51,8 @@ void Usart3_Init(void);
 void Uart7_Init(void);
 void uart7_send_string(uint8_t* string, uint8_t len);
 void usart1_send_string(const volatile u8* string, u8 len);
-
+void Uart6_Init(void);
+void uart6_send_string(u8* string,u8 len);
+void uart6_receive_byte(u8 data);
+u8 uart6_read_bytes(u8* buffer, u8 capacity);
 #endif /* DRIVER_UART_H_ */

@@ -35,6 +35,15 @@ void UART7_IRQHandler(void)
     }
 }
 
+void UART6_IRQHandler(void) __attribute__((interrupt("WCH-Interrupt-fast")));
+void UART6_IRQHandler(void)
+{
+    if(USART_GetITStatus(UART6, USART_IT_RXNE) != RESET)
+    {
+        uart6_receive_byte((u8)USART_ReceiveData(UART6));
+    }
+}
+
 int main(void)
 {
 
@@ -83,6 +92,8 @@ int main(void)
     as608_init();
     scheduler_init();
 
+    esp8266_init();
+    onenet_init();
     while(1)
     {
         scheduler_run();
