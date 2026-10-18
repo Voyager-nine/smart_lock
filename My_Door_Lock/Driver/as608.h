@@ -12,6 +12,7 @@
 
 void as608_init(void);
 void PS_GetImage(void);
+void PS_GenChar(u8 buffer);
 
 
 

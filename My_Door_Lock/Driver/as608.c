@@ -26,3 +26,17 @@ void PS_GetImage(void)
 
     uart7_send_string(command, sizeof(command));
 }
+
+void PS_GenChar(u8 buffer)
+{
+    u8 command[] = {0xEF, 0x01, 0xFF, 0xFF, 0xFF, 0xFF,
+                    0x01, 0x00, 0x04, 0x02, 0x00, 0x00, 0x00};
+    u16 sum;
+
+    command[10] = buffer;
+    sum = command[6] + command[7] + command[8] + command[9] + command[10];
+    command[11] = (u8)(sum >> 8);
+    command[12] = (u8)sum;
+
+    uart7_send_string(command, sizeof(command));
+}

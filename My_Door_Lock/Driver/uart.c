@@ -48,14 +48,14 @@ u8 uart7_read_frame(u8 frame[20])
     return len;
 }
 
-void usart1_send_string(u8* string, u8 led)
+void usart1_send_string(const volatile u8* string, u8 len)
 {
     u8 i;
 
-    if(string == 0 || led == 0)
+    if(string == 0 || len == 0)
         return;
 
-    for(i = 0; i < led; i++)
+    for(i = 0; i < len; i++)
     {
         while(USART_GetFlagStatus(USART1, USART_FLAG_TXE) == RESET);
         USART_SendData(USART1, string[i]);

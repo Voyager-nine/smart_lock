@@ -42,6 +42,6 @@ void uart2_discard_frame(void);
 void Usart3_Init(void);
 void Uart7_Init(void);
 void uart7_send_string(uint8_t* string, uint8_t len);
-void usart1_send_string(u8* string, u8 led);
+void usart1_send_string(const volatile u8* string, u8 len);
 
 #endif /* DRIVER_UART_H_ */

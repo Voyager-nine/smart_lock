@@ -37,6 +37,7 @@ void UART7_IRQHandler(void)
 
 int main(void)
 {
+
     NVIC_PriorityGroupConfig(NVIC_PriorityGroup_2);
     SystemCoreClockUpdate();
     Delay_Init();
@@ -83,14 +84,28 @@ int main(void)
     scheduler_init();
 
     PS_GetImage();
-    u8 uart7_frame[20];
-    u8 uart7_frame_len;
+    Delay_Ms(1000);
+    usart1_send_string(uart7_rec_string, 15);
+    Delay_Ms(1000);
+
+    PS_GenChar(1);
+    Delay_Ms(1000);
+    usart1_send_string(uart7_rec_string, 15);
+    Delay_Ms(1000);
+
+    PS_GetImage();
+    Delay_Ms(1000);
+    usart1_send_string(uart7_rec_string, 15);
+    Delay_Ms(1000);
+
+    PS_GenChar(2);
+    Delay_Ms(1000);
+    usart1_send_string(uart7_rec_string, 15);
+    Delay_Ms(1000);
     while(1)
     {
-        uart7_frame_len = uart7_read_frame(uart7_frame);
-        if(uart7_frame_len)
-            usart1_send_string(uart7_frame, uart7_frame_len);
         scheduler_run();
+
     }
 }
 
