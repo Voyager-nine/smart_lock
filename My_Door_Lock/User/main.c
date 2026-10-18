@@ -2,6 +2,11 @@
 #include "pic.h"
 #include "scheduler.h"
 
+volatile u8 uart7_rec_string[20]={0};
+volatile u8 uart7_rec_index;
+volatile u8 uart7_rec_tick;
+volatile u8 uart7_rec_ready;
+
 void USART2_IRQHandler(void) __attribute__((interrupt("WCH-Interrupt-fast")));
 void USART2_IRQHandler(void)
 {
@@ -21,6 +26,15 @@ void USART3_IRQHandler(void)
     }
 }
 
+void UART7_IRQHandler(void) __attribute__((interrupt("WCH-Interrupt-fast")));
+void UART7_IRQHandler(void)
+{
+    if(USART_GetITStatus(UART7, USART_IT_RXNE) != RESET)
+    {
+        uart7_receive_byte((u8)USART_ReceiveData(UART7));
+    }
+}
+
 int main(void)
 {
     NVIC_PriorityGroupConfig(NVIC_PriorityGroup_2);
@@ -36,7 +50,7 @@ int main(void)
     LCD_Fill(0, 0, 127, 127, WHITE);//填充背景为白色
 
     //显示汉字，需要提前准备字库
-    LCD_ShowChinese_String(32, 50, "正在启动", BLUE, WHITE, 16, 0);
+    LCD_ShowChinese(32, 4, (u8 *)"\xD5\xFD\xD4\xDA\xC6\xF4\xB6\xAF", BLUE, WHITE, 16, 0);
 
     //显示进度条
     unsigned char i;
@@ -47,7 +61,7 @@ int main(void)
     }
 
     //此处不用重新刷新背景，是因为显示汉字时有对背景进行设置？
-    LCD_ShowChinese_String(32, 50, "启动成功", BLUE, WHITE, 16, 0);
+    LCD_ShowChinese(32, 4, (u8 *)"\xC6\xF4\xB6\xAF\xB3\xC9\xB9\xA6", BLUE, WHITE, 16, 0);
     Delay_Ms(500);
 
     //显示图片
@@ -61,15 +75,21 @@ int main(void)
 
     LCD_Fill(20, 30, 107, 57, LGRAY);
 
-    voice_init();
-    voice_play(VOICE_TRACK_LOCKED);
+    lcd_prompt(LCD_PROMPT_LOCKED);
 
     key_init();
     Usart2_Init();
+    as608_init();
     scheduler_init();
 
+    PS_GetImage();
+    u8 uart7_frame[20];
+    u8 uart7_frame_len;
     while(1)
     {
+        uart7_frame_len = uart7_read_frame(uart7_frame);
+        if(uart7_frame_len)
+            usart1_send_string(uart7_frame, uart7_frame_len);
         scheduler_run();
     }
 }

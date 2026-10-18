@@ -817,10 +817,69 @@ void LCD_ShowPicture(u16 x,u16 y,u16 length,u16 width,const u8 pic[])
     }
 }
 
+static const char *const lcd_prompt_text[] = {
+    "",
+    "",
+    "\xC3\xC5\xD2\xD1\xB9\xD8\xB1\xD5",
+    "\xC3\xC5\xD2\xD1\xBF\xAA\xC6\xF4",
+    "\xC3\xDC\xC2\xEB\xB4\xED\xCE\xF3",
+    "\xB2\xD9\xD7\xF7\xD2\xD1\xCB\xF8\xB6\xA8",
+    "\xC7\xEB\xCA\xE4\xC8\xEB\xB9\xDC\xC0\xED\xC3\xDC\xC2\xEB",
+    "\xC7\xEB\xCA\xE4\xC8\xEB\xD0\xC2\xC3\xDC\xC2\xEB",
+    "\xD0\xDE\xB8\xC4\xB3\xC9\xB9\xA6",
+    "\xC3\xDC\xC2\xEB\xB4\xED\xCE\xF3",
+    "\xB2\xD9\xD7\xF7\xD2\xD1\xCB\xF8\xB6\xA8",
+    "\xC3\xC5\xD2\xD1\xBF\xAA\xC6\xF4",
+    "\xBF\xA8\xC6\xAC\xCE\xDE\xD0\xA7",
+    "\xC7\xEB\xCA\xE4\xC8\xEB\xB9\xDC\xC0\xED\xC3\xDC\xC2\xEB",
+    "\xC7\xEB\xCB\xA2\xBF\xA8",
+    "\xCC\xED\xBC\xD3\xB3\xC9\xB9\xA6",
+    "\xC3\xC5\xD2\xD1\xBF\xAA\xC6\xF4",
+    "\xD6\xB8\xCE\xC6\xB2\xBB\xC6\xA5\xC5\xE4",
+    "\xC7\xEB\xCA\xE4\xC8\xEB\xB9\xDC\xC0\xED\xC3\xDC\xC2\xEB",
+    "\xC7\xEB\xB7\xC5\xD6\xC3\xCA\xD6\xD6\xB8",
+    "\xD6\xB8\xCE\xC6\xC2\xBC\xC8\xEB\xD6\xD0",
+    "\xC2\xBC\xC8\xEB\xB3\xC9\xB9\xA6",
+    "\xC7\xEB\xCA\xE4\xC8\xEB\xC3\xDC\xC2\xEB",
+    "\xC7\xEB\xCA\xE4\xC8\xEB\xC1\xF9\xCE\xBB\xC3\xDC\xC2\xEB",
+    "\xD2\xD1\xCD\xCB\xB3\xF6",
+    "\xBF\xA8\xC6\xAC\xD2\xD1\xB4\xE6\xD4\xDA",
+    "\xBF\xA8\xC6\xAC\xD2\xD1\xC2\xFA",
+    "\xD6\xB8\xCE\xC6\xBF\xE2\xD2\xD1\xC2\xFA",
+    "\xD6\xB8\xCE\xC6\xCD\xA8\xD0\xC5\xD2\xEC\xB3\xA3",
+    "\xD6\xB8\xCE\xC6\xC2\xBC\xC8\xEB\xB3\xAC\xCA\xB1",
+    "\xD6\xB8\xCE\xC6\xC2\xBC\xC8\xEB\xCA\xA7\xB0\xDC",
+};
+
+static uint8_t prompt_current;
+static uint32_t prompt_started;
+
+void lcd_prompt(uint8_t prompt)
+{
+    if(prompt > LCD_PROMPT_KEY && prompt <= LCD_PROMPT_FINGER_FAILED)
+    {
+        prompt_current = prompt;
+        prompt_started = GetTick();
+    }
+}
+
+static void lcd_draw_prompt(uint8_t prompt, uint16_t color)
+{
+    const uint8_t *text = (const uint8_t *)lcd_prompt_text[prompt];
+    uint8_t bytes = 0, i, x;
+    while(bytes < 16 && text[bytes]) bytes++;
+    x = (LCD_W - bytes * 8) / 2;
+    LCD_Fill(0, 0, LCD_W, 24, WHITE);
+    for(i = 0; i < bytes; i += 2)
+        LCD_ShowChinese16x16(x + i * 8, 4, (u8 *)(text + i), color, WHITE, 16, 0);
+}
+
 void lcd_task()
 {
     static uint8_t lock_display_flag = 0;
     static uint8_t lock_seconds_old = 0;
+    static uint8_t prompt_old = 0;
+    uint8_t prompt;
     uint8_t i;
     uint8_t seconds = password_lock_seconds();
     uint8_t digits;
@@ -831,6 +890,7 @@ void lcd_task()
         {
             LCD_Fill(0, 0, LCD_W, LCD_H, WHITE);
             lock_display_flag = 1;
+            lcd_draw_prompt(LCD_PROMPT_PASSWORD_LOCKED, RED);
             lock_seconds_old = 0;
         }
 
@@ -850,7 +910,16 @@ void lcd_task()
     {
         lock_display_flag = 0;
         LCD_ShowPicture(0, 0, LCD_W, LCD_H, gImage_lock_disp + 8);
+        prompt_old = prompt_current = 0;
         refresh_lcd = 1;
+    }
+    if(prompt_current && (uint32_t)(GetTick() - prompt_started) >= 2000)
+        prompt_current = 0;
+    prompt = prompt_current ? prompt_current : key_prompt();
+    if(prompt != prompt_old)
+    {
+        lcd_draw_prompt(prompt, BLUE);
+        prompt_old = prompt;
     }
     if(refresh_lcd == 0)
         return;

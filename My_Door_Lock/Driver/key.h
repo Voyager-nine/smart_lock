@@ -35,4 +35,5 @@
 
 void key_init(void);
 void key_task();
+uint8_t key_prompt(void);
 #endif /* DRIVER_KEY_H_ */

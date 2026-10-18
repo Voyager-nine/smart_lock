@@ -1,4 +1,5 @@
 eclipse.preferences.version=1
 encoding//Driver/key.c=UTF-8
 encoding//Driver/timer.c=UTF-8
+encoding//Driver/uart.c=UTF-8
 encoding//User/main.c=UTF-8

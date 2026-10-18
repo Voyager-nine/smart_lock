@@ -14,6 +14,7 @@
 #include "key.h"
 #include "voice.h"
 #include "uart.h"
+#include "as608.h"
 
 extern uint8_t refresh_lcd;
 extern uint8_t password_len;

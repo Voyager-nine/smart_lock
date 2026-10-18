@@ -15,6 +15,7 @@ static uint8_t admin_verified_flag = 0; // 0:验证管理员密码 1:执行管�
 #define MODE_UNLOCK 0
 #define MODE_CHANGE_PASSWORD 1
 #define MODE_ADD_CARD 2
+#define MODE_ADD_FINGER 3
 #define CARD_MAX_COUNT 10
 #define CARD_ID_LEN 6
 
@@ -138,22 +139,20 @@ void key_task()
         return;
     }
 
-    // 管理员验证后等待刷卡，此时按键不改变录卡状态
-    if(mode_flag == MODE_ADD_CARD && admin_verified_flag)
+    // 等待录卡时只允许再次按录卡键退出
+    if(mode_flag == MODE_ADD_CARD && admin_verified_flag && key_down != 12)
+        return;
+    if(mode_flag == MODE_ADD_FINGER && admin_verified_flag && key_down != 8)
         return;
 
     // 不足6位时忽略确认，保留已输入密码
     if(key_down == 16 && password_len != 6)
     {
+        lcd_prompt(LCD_PROMPT_PASSWORD_SHORT);
         return;
     }
 
-    if(key_down != 16 && key_down != 4 && key_down != 12)
-    {
-        voice_play(VOICE_TRACK_KEY);
-    }
-
-    switch(key_down)
+switch(key_down)
     {
         case 1:
         case 2:
@@ -172,7 +171,15 @@ void key_task()
                 admin_verified_flag = 0;
                 password_len = 0;
                 refresh_lcd = 1;
-                voice_play(VOICE_TRACK_ADMIN_ENTER);
+                lcd_prompt(LCD_PROMPT_ADMIN_ENTER);
+            }
+            else if(mode_flag == MODE_CHANGE_PASSWORD)
+            {
+                mode_flag = MODE_UNLOCK;
+                admin_verified_flag = 0;
+                password_len = 0;
+                refresh_lcd = 1;
+                lcd_prompt(LCD_PROMPT_EXIT);
             }
             break;
 
@@ -187,6 +194,26 @@ void key_task()
             break;
 
         case 8:
+            if(mode_flag == MODE_UNLOCK)
+            {
+
+                mode_flag = MODE_ADD_FINGER;
+                printf("[FP] enroll mode, enter admin password\r\n");
+                admin_verified_flag = 0;
+                password_len = 0;
+                refresh_lcd = 1;
+
+                lcd_prompt(LCD_PROMPT_FINGER_ENTER);
+            }
+            else if(mode_flag == MODE_ADD_FINGER)
+            {
+
+                mode_flag = MODE_UNLOCK;
+                admin_verified_flag = 0;
+                password_len = 0;
+                refresh_lcd = 1;
+                lcd_prompt(LCD_PROMPT_EXIT);
+            }
             break;
 
         case 9:
@@ -207,7 +234,16 @@ void key_task()
                 password_len = 0;
                 refresh_lcd = 1;
                 uart2_discard_frame();
-                voice_play(VOICE_TRACK_CARD_ENTER);
+                lcd_prompt(LCD_PROMPT_CARD_ENTER);
+            }
+            else if(mode_flag == MODE_ADD_CARD)
+            {
+                mode_flag = MODE_UNLOCK;
+                admin_verified_flag = 0;
+                password_len = 0;
+                refresh_lcd = 1;
+                uart2_discard_frame();
+                lcd_prompt(LCD_PROMPT_EXIT);
             }
             break;
 
@@ -241,7 +277,7 @@ void key_task()
                 }
                 mode_flag = MODE_UNLOCK;
                 admin_verified_flag = 0;
-                voice_play(VOICE_TRACK_PASSWORD_SAVED);
+                lcd_prompt(LCD_PROMPT_PASSWORD_SAVED);
             }
             else
             {
@@ -260,18 +296,24 @@ void key_task()
                     if(mode_flag != MODE_UNLOCK)
                     {
                         admin_verified_flag = 1;
-                        if(mode_flag == MODE_ADD_CARD)
+                        if(mode_flag == MODE_ADD_FINGER)
+                        {
+                            printf("[FP] admin accepted, enrollment pending\r\n");
+
+                            lcd_prompt(LCD_PROMPT_FINGER_ADMIN);
+                        }
+                        else if(mode_flag == MODE_ADD_CARD)
                         {
                             uart2_discard_frame();
-                            voice_play(VOICE_TRACK_CARD_ADMIN_CORRECT);
+                            lcd_prompt(LCD_PROMPT_CARD_ADMIN_CORRECT);
                         }
                         else
-                            voice_play(VOICE_TRACK_ADMIN_CORRECT);
+                            lcd_prompt(LCD_PROMPT_ADMIN_CORRECT);
                     }
                     else
                     {
                         lock_flag = 0;
-                        voice_play(VOICE_TRACK_PASSWORD_CORRECT);
+                        lcd_prompt(LCD_PROMPT_PASSWORD_CORRECT);
                     }
                 }
                 else
@@ -283,10 +325,10 @@ void key_task()
                             admin_error_count = 0;
                             admin_verified_flag = 0;
                             password_lock_flag = 1;
-                            voice_play(VOICE_TRACK_ADMIN_LOCKED);
+                            lcd_prompt(LCD_PROMPT_ADMIN_LOCKED);
                         }
                         else
-                            voice_play(VOICE_TRACK_ADMIN_WRONG);
+                            lcd_prompt(LCD_PROMPT_ADMIN_WRONG);
                     }
                     else
                     {
@@ -294,10 +336,10 @@ void key_task()
                         {
                             password_error_count = 0;
                             password_lock_flag = 1;
-                            voice_play(VOICE_TRACK_PASSWORD_LOCKED);
+                            lcd_prompt(LCD_PROMPT_PASSWORD_LOCKED);
                         }
                         else
-                            voice_play(VOICE_TRACK_PASSWORD_WRONG);
+                            lcd_prompt(LCD_PROMPT_PASSWORD_WRONG);
                     }
                 }
             }
@@ -316,6 +358,7 @@ void card_proc(void)
     uint8_t checksum = 0;
     uint8_t expected_checksum;
     uint8_t i, j;
+    uint8_t card_exists;
 
     if(uart2_read_frame(frame) == 0)
         return;
@@ -336,7 +379,7 @@ void card_proc(void)
 
     if(frame[4] != 0x00)
     {
-        voice_play(VOICE_TRACK_CARD_WRONG);
+        lcd_prompt(LCD_PROMPT_CARD_WRONG);
         return;
     }
 
@@ -354,6 +397,7 @@ void card_proc(void)
 
     if(mode_flag == MODE_ADD_CARD)
     {
+        card_exists = (i < card_count);
         if(i == card_count && card_count < CARD_MAX_COUNT)
         {
             for(j = 0; j < CARD_ID_LEN; j++)
@@ -365,10 +409,10 @@ void card_proc(void)
         {
             mode_flag = MODE_UNLOCK;
             admin_verified_flag = 0;
-            voice_play(VOICE_TRACK_CARD_SAVED);
+            lcd_prompt(card_exists ? LCD_PROMPT_CARD_EXISTS : LCD_PROMPT_CARD_SAVED);
         }
         else
-            voice_play(VOICE_TRACK_CARD_WRONG);
+            lcd_prompt(LCD_PROMPT_CARD_FULL);
         return;
     }
 
@@ -377,8 +421,22 @@ void card_proc(void)
         lock_flag = 0;
         password_len = 0;
         refresh_lcd = 1;
-        voice_play(VOICE_TRACK_CARD_CORRECT);
+        lcd_prompt(LCD_PROMPT_CARD_CORRECT);
     }
     else
-        voice_play(VOICE_TRACK_CARD_WRONG);
+        lcd_prompt(LCD_PROMPT_CARD_WRONG);
+}
+
+/* 临时提示结束后，恢复当前模式的常驻提示。 */
+uint8_t key_prompt(void)
+{
+    if(mode_flag == MODE_UNLOCK)
+        return lock_flag ? LCD_PROMPT_INPUT_PASSWORD : LCD_PROMPT_PASSWORD_CORRECT;
+    if(!admin_verified_flag)
+        return LCD_PROMPT_ADMIN_ENTER;
+    if(mode_flag == MODE_CHANGE_PASSWORD)
+        return LCD_PROMPT_ADMIN_CORRECT;
+    if(mode_flag == MODE_ADD_CARD)
+        return LCD_PROMPT_CARD_ADMIN_CORRECT;
+    return LCD_PROMPT_FINGER_ADMIN;
 }

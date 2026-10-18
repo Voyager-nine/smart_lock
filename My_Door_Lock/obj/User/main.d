@@ -34,6 +34,7 @@ User/main.o: ../User/main.c E:\2_Code\CH32\My_Door_Lock\Driver/mydefine.h \
  E:\2_Code\CH32\My_Door_Lock\Driver/key.h \
  E:\2_Code\CH32\My_Door_Lock\Driver/voice.h \
  E:\2_Code\CH32\My_Door_Lock\Driver/uart.h \
+ E:\2_Code\CH32\My_Door_Lock\Driver/as608.h \
  E:\2_Code\CH32\My_Door_Lock\Driver/pic.h \
  E:\2_Code\CH32\My_Door_Lock\Driver/scheduler.h
 
@@ -108,6 +109,8 @@ E:\2_Code\CH32\My_Door_Lock\Driver/key.h:
 E:\2_Code\CH32\My_Door_Lock\Driver/voice.h:
 
 E:\2_Code\CH32\My_Door_Lock\Driver/uart.h:
+
+E:\2_Code\CH32\My_Door_Lock\Driver/as608.h:
 
 E:\2_Code\CH32\My_Door_Lock\Driver/pic.h:
 

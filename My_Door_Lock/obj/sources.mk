@@ -29,4 +29,6 @@ Driver \
 Peripheral/src \
 Startup \
 User \
+tests/.build_as608 \
+tests/.build_as608/lcd_build \
 

@@ -5,6 +5,7 @@
 
 # Add inputs and outputs from these tool invocations to the build variables 
 C_SRCS += \
+../Driver/as608.c \
 ../Driver/key.c \
 ../Driver/lcd.c \
 ../Driver/scheduler.c \
@@ -13,6 +14,7 @@ C_SRCS += \
 ../Driver/voice.c 
 
 OBJS += \
+./Driver/as608.o \
 ./Driver/key.o \
 ./Driver/lcd.o \
 ./Driver/scheduler.o \
@@ -21,6 +23,7 @@ OBJS += \
 ./Driver/voice.o 
 
 C_DEPS += \
+./Driver/as608.d \
 ./Driver/key.d \
 ./Driver/lcd.d \
 ./Driver/scheduler.d \

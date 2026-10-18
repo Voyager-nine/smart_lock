@@ -1,0 +1,370 @@
+﻿#include "as608.h"
+
+#define AS608_TRACE 1
+#if AS608_TRACE
+#define FP_LOG(...) printf(__VA_ARGS__)
+#else
+#define FP_LOG(...) ((void)0)
+#endif
+
+#define FP_TIMEOUT 2000U
+#define FP_POLL_MS 150U
+#define FP_RX_MAX 44
+#define FP_ERR_TIMEOUT 0xF0
+#define FP_ERR_FORMAT 0xF1
+#define FP_ERR_FULL 0xF2
+
+typedef enum
+{
+    FP_IDLE, FP_PARAMETERS, FP_INDEX, FP_WAIT_FIRST, FP_IMAGE_FIRST,
+    FP_CHAR_FIRST, FP_WAIT_REMOVE, FP_REMOVE_IMAGE, FP_WAIT_SECOND,
+    FP_IMAGE_SECOND, FP_CHAR_SECOND, FP_MODEL, FP_STORE, FP_SEARCH, FP_DRAIN,
+    FP_WAIT_RELEASE, FP_RELEASE_IMAGE
+} FP_State;
+
+static FP_State state;
+static AS608_Event event;
+static uint8_t enroll_flag, error_code, index_page;
+static uint8_t require_release;
+static uint16_t capacity, page_id;
+static uint32_t operation_ms, command_ms, wait_ms;
+static volatile uint8_t waiting, ack_ready, ack_size;
+static volatile uint8_t ack[FP_RX_MAX];
+static uint8_t rx[FP_RX_MAX], rx_count, rx_size;
+static uint32_t rx_ms;
+static uint8_t no_finger_state = 0xFF;
+static volatile uint16_t rx_seen;
+static volatile uint8_t rx_sample[8];
+
+static void finish(AS608_Event result, uint8_t code)
+{
+    FP_LOG("[FP %lu] end state=%u event=%u code=%02X id=%u\r\n",
+           (unsigned long)GetTick(), (unsigned)state, (unsigned)result,
+           (unsigned)code, (unsigned)page_id);
+    waiting = 0;
+    ack_ready = 0;
+    event = result;
+    error_code = code;
+    // 移开门控只能在确认02后解除，通信错误不能绕过
+    if(result == AS608_EVENT_MATCH || result == AS608_EVENT_NOT_MATCH ||
+       result == AS608_EVENT_SAVED)
+        require_release = 1;
+    state = FP_DRAIN;
+    wait_ms = GetTick();
+}
+
+/* 包格式：EF01 + 地址 + 包标识 + 长度 + 指令/参数 + 校验和 */
+static void command(uint8_t code, const uint8_t *args, uint8_t count, FP_State next)
+{
+    uint8_t packet[20] = {0xEF,0x01,0xFF,0xFF,0xFF,0xFF,0x01,0};
+    uint8_t i, size = count + 12;
+    uint16_t sum;
+    uint32_t tx_ms = GetTick();
+
+    packet[8] = count + 3;
+    packet[9] = code;
+    for(i = 0; i < count; i++) packet[10 + i] = args[i];
+    sum = 0;
+    for(i = 6; i < size - 2; i++) sum += packet[i];
+    packet[size - 2] = sum >> 8;
+    packet[size - 1] = sum;
+
+    if(code != 0x01)
+        FP_LOG("[FP %lu] tx=%02X next=%u\r\n",
+               (unsigned long)GetTick(), (unsigned)code, (unsigned)next);
+    tx_ms = GetTick();
+
+    USART_ITConfig(UART7, USART_IT_RXNE, DISABLE);
+    rx_count = 0;
+    rx_seen = 0;
+    for(i = 0; i < sizeof(rx_sample); i++) rx_sample[i] = 0;
+    ack_ready = 0;
+    waiting = 1;
+    state = next;
+    command_ms = GetTick();
+    USART_ITConfig(UART7, USART_IT_RXNE, ENABLE);
+    for(i = 0; i < size; i++)
+    {
+        while(USART_GetFlagStatus(UART7, USART_FLAG_TXE) == RESET)
+        {
+            if((uint32_t)(GetTick() - tx_ms) >= 20)
+            {
+                finish(AS608_EVENT_ERROR, FP_ERR_TIMEOUT);
+                return;
+            }
+        }
+        USART_SendData(UART7, packet[i]);
+    }
+}
+
+void AS608_receive_byte(uint8_t data)
+{
+    uint8_t i;
+    uint16_t length, sum = 0;
+    uint32_t now = GetTick();
+    if(rx_seen < sizeof(rx_sample)) rx_sample[rx_seen] = data;
+    if(rx_seen != 0xFFFF) rx_seen++;
+    if(!waiting || ack_ready) return;
+    if((uint32_t)(now - rx_ms) > 100) rx_count = 0;
+    rx_ms = now;
+    if(rx_count == 0)
+    {
+        if(data == 0xEF) rx[rx_count++] = data;
+        return;
+    }
+    if(rx_count == 1 && data != 0x01)
+    {
+        rx_count = (data == 0xEF) ? 1 : 0;
+        return;
+    }
+    rx[rx_count++] = data;
+    if(rx_count == 9)
+    {
+        length = ((uint16_t)rx[7] << 8) | rx[8];
+        if(length < 3 || length > FP_RX_MAX - 9 || rx[6] != 0x07 ||
+           rx[2] != 0xFF || rx[3] != 0xFF || rx[4] != 0xFF || rx[5] != 0xFF)
+        {
+            rx_count = 0;
+            return;
+        }
+        rx_size = length + 9;
+    }
+    if(rx_count < 9 || rx_count != rx_size) return;
+    for(i = 6; i < rx_size - 2; i++) sum += rx[i];
+    if(sum == (((uint16_t)rx[rx_size - 2] << 8) | rx[rx_size - 1]))
+    {
+        for(i = 0; i < rx_size; i++) ack[i] = rx[i];
+        ack_size = rx_size;
+        ack_ready = 1; /* 最后发布，前台处理期间不覆盖 */
+    }
+    rx_count = 0;
+}
+
+void AS608_init(void)
+{
+    state = FP_IDLE;
+    event = AS608_EVENT_NONE;
+    waiting = ack_ready = rx_count = 0;
+    rx_seen = 0;
+    error_code = 0;
+    require_release = 0;
+    no_finger_state = 0xFF;
+    Uart7_Init();
+}
+
+static uint8_t start(uint8_t enroll)
+{
+    if(state != FP_IDLE) return 0;
+    enroll_flag = enroll;
+    event = AS608_EVENT_NONE;
+    error_code = 0;
+    operation_ms = GetTick();
+    FP_LOG("[FP %lu] start %s\r\n", (unsigned long)operation_ms,
+           enroll ? "enroll" : "verify");
+    command(0x0F, 0, 0, FP_PARAMETERS);
+    return 1;
+}
+
+uint8_t AS608_start_enroll(void) { return start(1); }
+uint8_t AS608_start_verify(void) { return start(0); }
+uint8_t AS608_busy(void) { return state != FP_IDLE; }
+uint8_t AS608_get_error(void) { return error_code; }
+uint16_t AS608_get_id(void) { return page_id; }
+AS608_Event AS608_get_event(void)
+{
+    AS608_Event result = event;
+    event = AS608_EVENT_NONE;
+    return result;
+}
+void AS608_cancel(void)
+{
+    if(state != FP_IDLE && state != FP_DRAIN)
+        finish(AS608_EVENT_NONE, 0);
+    event = AS608_EVENT_NONE;
+}
+
+void AS608_proc(void)
+{
+    uint8_t code, size, args[5], i;
+    uint16_t candidate;
+    uint32_t now = GetTick();
+    if(state == FP_IDLE) return;
+    if(state == FP_DRAIN)
+    {
+        /* 丢弃取消/超时后的迟到应答，防止串入下一次操作 */
+        if((uint32_t)(now - wait_ms) >= FP_TIMEOUT)
+            state = require_release ? FP_WAIT_RELEASE : FP_IDLE;
+        return;
+    }
+    if(state != FP_WAIT_RELEASE && state != FP_RELEASE_IMAGE &&
+       (uint32_t)(now - operation_ms) >= (enroll_flag ? 60000U : 8000U))
+    {
+        finish(AS608_EVENT_ERROR, FP_ERR_TIMEOUT);
+        return;
+    }
+    if(waiting)
+    {
+        if(!ack_ready)
+        {
+            if((uint32_t)(now - command_ms) >= FP_TIMEOUT)
+            {
+                FP_LOG("[FP] timeout rx=%u first=%02X %02X %02X %02X\r\n",
+                       (unsigned)rx_seen, (unsigned)rx_sample[0],
+                       (unsigned)rx_sample[1], (unsigned)rx_sample[2],
+                       (unsigned)rx_sample[3]);
+                finish(AS608_EVENT_ERROR, FP_ERR_TIMEOUT);
+            }
+            return;
+        }
+        waiting = 0;
+        size = ack_size;
+        code = ack[9];
+        ack_ready = 0;
+        if(code == 0x02)
+        {
+            if(no_finger_state != (uint8_t)state)
+                FP_LOG("[FP %lu] no finger state=%u\r\n",
+                       (unsigned long)now, (unsigned)state);
+            no_finger_state = (uint8_t)state;
+        }
+        else
+        {
+            no_finger_state = 0xFF;
+            FP_LOG("[FP %lu] ack state=%u code=%02X bytes=%u\r\n",
+                   (unsigned long)now, (unsigned)state, (unsigned)code,
+                   (unsigned)size);
+        }
+        if(code != 0)
+        {
+            if(size != 12 && !(state == FP_SEARCH && size == 16))
+            { finish(AS608_EVENT_ERROR, FP_ERR_FORMAT); return; }
+            if(code == 0x02 && state == FP_RELEASE_IMAGE)
+            {
+                state = FP_IDLE;
+                require_release = 0;
+                return;
+            }
+            if(code == 0x02 && (state == FP_IMAGE_FIRST || state == FP_IMAGE_SECOND || state == FP_REMOVE_IMAGE))
+            {
+                if(state == FP_REMOVE_IMAGE)
+                {
+                    FP_LOG("[FP] finger removed, place same finger again\r\n");
+                    state = FP_WAIT_SECOND;
+                    event = AS608_EVENT_AGAIN;
+                }
+                else state = state == FP_IMAGE_FIRST ? FP_WAIT_FIRST : FP_WAIT_SECOND;
+                // 普通开锁可持续等待手指，无手指不是验证失败
+                if(!enroll_flag) operation_ms = now;
+                wait_ms = now;
+                return;
+            }
+            finish((state == FP_SEARCH && code == 0x09) ? AS608_EVENT_NOT_MATCH : AS608_EVENT_ERROR, code);
+            return;
+        }
+        if(size != (state == FP_PARAMETERS ? 28 : state == FP_INDEX ? 44 : state == FP_SEARCH ? 16 : 12))
+        {
+            finish(AS608_EVENT_ERROR, FP_ERR_FORMAT);
+            return;
+        }
+        switch(state)
+        {
+            case FP_PARAMETERS:
+                capacity = ((uint16_t)ack[14] << 8) | ack[15];
+                if(capacity == 0 || capacity > 1024) { finish(AS608_EVENT_ERROR, FP_ERR_FORMAT); break; }
+                FP_LOG("[FP] capacity=%u\r\n", (unsigned)capacity);
+                if(enroll_flag)
+                {
+                    index_page = 0;
+                    args[0] = index_page;
+                    command(0x1F, args, 1, FP_INDEX);
+                }
+                else command(0x01, 0, 0, FP_IMAGE_FIRST);
+                break;
+            case FP_INDEX:
+                for(i = 0; i < 32; i++)
+                {
+                    uint8_t bit;
+                    for(bit = 0; bit < 8; bit++)
+                    {
+                        candidate = (uint16_t)index_page * 256 + i * 8 + bit;
+                        if(candidate >= capacity) { finish(AS608_EVENT_FULL, FP_ERR_FULL); return; }
+                        if((ack[10 + i] & (1U << bit)) == 0)
+                        {
+                            page_id = candidate;
+                            FP_LOG("[FP] free slot=%u, place finger\r\n", (unsigned)page_id);
+                            state = FP_WAIT_FIRST;
+                            wait_ms = now;
+                            event = AS608_EVENT_PLACE;
+                            return;
+                        }
+                    }
+                }
+                if((uint16_t)(index_page + 1) * 256 >= capacity)
+                    finish(AS608_EVENT_FULL, FP_ERR_FULL);
+                else
+                {
+                    args[0] = ++index_page;
+                    command(0x1F, args, 1, FP_INDEX);
+                }
+                break;
+            case FP_IMAGE_FIRST:
+                FP_LOG("[FP] first image captured\r\n");
+                if(!enroll_flag) operation_ms = now;
+                args[0] = 1;
+                command(0x02, args, 1, FP_CHAR_FIRST);
+                break;
+            case FP_CHAR_FIRST:
+                if(enroll_flag)
+                {
+                    FP_LOG("[FP] first feature ready, remove finger\r\n");
+                    state = FP_WAIT_REMOVE;
+                    wait_ms = now;
+                    event = AS608_EVENT_REMOVE;
+                }
+                else
+                {
+                    args[0] = 1; args[1] = 0; args[2] = 0;
+                    args[3] = capacity >> 8; args[4] = capacity;
+                    command(0x04, args, 5, FP_SEARCH);
+                }
+                break;
+            case FP_REMOVE_IMAGE:
+                state = FP_WAIT_REMOVE;
+                wait_ms = now;
+                break;
+            case FP_RELEASE_IMAGE:
+                state = FP_WAIT_RELEASE;
+                wait_ms = now;
+                break;
+            case FP_IMAGE_SECOND:
+                FP_LOG("[FP] second image captured\r\n");
+                args[0] = 2;
+                command(0x02, args, 1, FP_CHAR_SECOND);
+                break;
+            case FP_CHAR_SECOND:
+                FP_LOG("[FP] second feature ready\r\n");
+                command(0x05, 0, 0, FP_MODEL);
+                break;
+            case FP_MODEL:
+                FP_LOG("[FP] model ready, store slot=%u\r\n", (unsigned)page_id);
+                args[0] = 1; args[1] = page_id >> 8; args[2] = page_id;
+                command(0x06, args, 3, FP_STORE);
+                break;
+            case FP_STORE:
+                finish(AS608_EVENT_SAVED, 0);
+                break;
+            case FP_SEARCH:
+                page_id = ((uint16_t)ack[10] << 8) | ack[11];
+                finish(page_id < capacity ? AS608_EVENT_MATCH : AS608_EVENT_ERROR,
+                       page_id < capacity ? 0 : FP_ERR_FORMAT);
+                break;
+            default: finish(AS608_EVENT_ERROR, FP_ERR_FORMAT); break;
+        }
+        return;
+    }
+    if((uint32_t)(now - wait_ms) < FP_POLL_MS) return;
+    if(state == FP_WAIT_RELEASE) command(0x01, 0, 0, FP_RELEASE_IMAGE);
+    else if(state == FP_WAIT_REMOVE) command(0x01, 0, 0, FP_REMOVE_IMAGE);
+    else if(state == FP_WAIT_FIRST || state == FP_WAIT_SECOND)
+        command(0x01, 0, 0, state == FP_WAIT_FIRST ? FP_IMAGE_FIRST : FP_IMAGE_SECOND);
+}

@@ -28,7 +28,8 @@ Driver/uart.o: ../Driver/uart.c ../Driver/uart.h ../Driver/mydefine.h \
  E:\2_Code\CH32\My_Door_Lock\Peripheral\inc/ch32v30x_wwdg.h \
  E:\2_Code\CH32\My_Door_Lock\User/ch32v30x_it.h \
  E:\2_Code\CH32\My_Door_Lock\Peripheral\inc/ch32v30x_misc.h \
- ../Driver/timer.h ../Driver/lcd.h ../Driver/key.h ../Driver/voice.h
+ ../Driver/timer.h ../Driver/lcd.h ../Driver/key.h ../Driver/voice.h \
+ ../Driver/as608.h
 
 ../Driver/uart.h:
 
@@ -99,3 +100,5 @@ E:\2_Code\CH32\My_Door_Lock\Peripheral\inc/ch32v30x_misc.h:
 ../Driver/key.h:
 
 ../Driver/voice.h:
+
+../Driver/as608.h:

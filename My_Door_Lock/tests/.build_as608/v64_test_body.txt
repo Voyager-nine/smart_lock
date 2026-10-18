@@ -1,0 +1,153 @@
+﻿tests = r'''
+static void expect(uint8_t cmd)
+{
+    uint16_t sum=0; unsigned i;
+    assert(tx_count >= 12 && tx[9] == cmd);
+    assert(tx[8]+9 == tx_count);
+    for(i=6;i+2<tx_count;i++) sum+=tx[i];
+    assert(sum == ((uint16_t)tx[tx_count-2]<<8 | tx[tx_count-1]));
+    tx_count=0;
+}
+static void feed(const uint8_t *payload, unsigned n, int bad)
+{
+    uint8_t p[44]={0xEF,1,0xFF,0xFF,0xFF,0xFF,7,0};
+    uint16_t sum=0; unsigned i, len=n+11;
+    p[8]=n+2; memcpy(p+9,payload,n);
+    for(i=6;i<len-2;i++) sum+=p[i];
+    p[len-2]=sum>>8; p[len-1]=sum;
+    if(bad==1) p[len-1]^=1;
+    if(bad==2) p[2]=0;
+    for(i=0;i<len;i++) AS608_receive_byte(p[i]);
+}
+static void ack_code(uint8_t code)
+{ feed(&code,1,0); tick+=100;AS608_proc(); }
+static void reset(void)
+{
+    tick+=10000;touch=0;tx_count=0;AS608_init();
+    mode_flag=MODE_UNLOCK;admin_verified_flag=0;finger_operation=0;
+    finger_pending=0;password_lock_flag=0;lock_flag=1;
+    password_len=0;key_old=0;test_key=0;
+    voice_count=text_count=0;
+}
+static void press(uint8_t n) {test_key=n;key_old=0;key_task();test_key=0;key_task();}
+static void verify_to_search(void)
+{
+    touch=1;assert(AS608_start_verify());AS608_proc();expect(1);
+    ack_code(0);assert(tx[10]==1);expect(2);
+    ack_code(0);assert(tx[10]==1 && tx[13]==1 && tx[14]==44);expect(4);
+}
+static void enroll_to_model(unsigned occupied)
+{
+    touch=1;assert(AS608_start_enroll());AS608_proc();
+    for(unsigned i=0;i<occupied;i++)
+    {
+        assert((((unsigned)tx[11]<<8)|tx[12])==i);expect(7);ack_code(0);
+    }
+    assert((((unsigned)tx[11]<<8)|tx[12])==occupied);expect(7);ack_code(0x0C);
+    expect(1);ack_code(0);assert(tx[10]==1);expect(2);ack_code(0);
+    assert(AS608_get_event()==AS608_EVENT_ENROLLING);
+    // V6.4: keep the finger in place for both captures.
+    expect(1);ack_code(0);assert(tx[10]==2);expect(2);ack_code(0);expect(5);
+}
+int main(void)
+{
+    uint8_t match[]={0,0,42,0,80}, ok=0;
+    // WAK low: wait indefinitely without issuing any UART commands.
+    reset();assert(AS608_start_enroll());tick+=65000;AS608_proc();
+    assert(tx_count==0 && AS608_busy() && AS608_get_event()==AS608_EVENT_NONE);
+    AS608_cancel();assert(!AS608_busy());
+    // Exact V6.4 GetImage frame and minimum 100 ms command spacing.
+    touch=1;assert(AS608_start_verify());AS608_proc();
+    assert(tx_count==12 && tx[9]==1 && tx[10]==0 && tx[11]==5);expect(1);
+    feed(&ok,1,0);tick+=99;AS608_proc();assert(tx_count==0);
+    tick++;AS608_proc();expect(2);
+
+    // No image is a retry, never a mismatch. WAK may precede usable image.
+    reset();touch=1;assert(AS608_start_verify());AS608_proc();expect(1);
+    ack_code(2);assert(AS608_get_event()==AS608_EVENT_NONE);
+    tick+=149;AS608_proc();assert(tx_count==0);tick++;AS608_proc();expect(1);
+    ack_code(0);expect(2);ack_code(0);expect(4);
+    feed(match,5,0);tick+=100;AS608_proc();
+    assert(AS608_get_event()==AS608_EVENT_MATCH && AS608_get_id()==42);
+    tick+=2000;AS608_proc();AS608_proc();assert(AS608_busy() && tx_count==0);
+    tick+=6000;AS608_proc();assert(AS608_busy()); // held finger cannot trigger again
+    touch=0;AS608_proc();assert(!AS608_busy());
+
+    // Occupied Flash templates are skipped, including IDs above 255.
+    reset();enroll_to_model(257);ack_code(0);
+    assert(tx[10]==1 && tx[11]==1 && tx[12]==1);expect(6);
+    assert(AS608_get_event()==AS608_EVENT_NONE);ack_code(0);
+    assert(AS608_get_event()==AS608_EVENT_SAVED && AS608_get_id()==257);
+    // Simulated reboot: rescan the library rather than reuse volatile next-ID.
+    reset();enroll_to_model(258);ack_code(0);expect(6);ack_code(0);
+    assert(AS608_get_id()==258);
+    reset();touch=1;assert(AS608_start_enroll());AS608_proc();
+    for(unsigned i=0;i<300;i++){expect(7);ack_code(0);}
+    assert(tx_count==0 && AS608_get_event()==AS608_EVENT_FULL);
+    reset();enroll_to_model(0);ack_code(0);expect(6);ack_code(0x18);
+    assert(AS608_get_event()==AS608_EVENT_ERROR); // never report a failed Flash write as saved
+    reset();touch=1;assert(AS608_start_enroll());AS608_proc();expect(7);ack_code(1);
+    assert(AS608_get_event()==AS608_EVENT_ERROR && tx_count==0);
+
+    reset();verify_to_search();match[0]=9;feed(match,5,0);match[0]=0;
+    tick+=100;AS608_proc();assert(AS608_get_event()==AS608_EVENT_NOT_MATCH);
+    reset();verify_to_search();ack_code(9);assert(AS608_get_event()==AS608_EVENT_NOT_MATCH);
+    reset();verify_to_search();ack_code(0);assert(AS608_get_error()==0xF1);
+    reset();touch=1;assert(AS608_start_verify());AS608_proc();expect(1);
+    feed(&ok,1,1);feed(&ok,1,2);tick+=2000;AS608_proc();
+    assert(AS608_get_error()==0xF0);
+    reset();touch=1;assert(AS608_start_verify());AS608_proc();expect(1);
+    AS608_cancel();feed(&ok,1,0);tick+=2000;AS608_proc();
+    assert(AS608_get_event()==AS608_EVENT_NONE && !AS608_start_verify());
+    touch=0;AS608_proc();assert(!AS608_busy());
+
+    // Administrator entry/exit and error counts retain their original rules.
+    reset();admin_error_count=2;press(8);assert(mode_flag==3);
+    press(4);assert(mode_flag==3);press(12);assert(mode_flag==3);
+    press(8);assert(mode_flag==0 && admin_error_count==2);press(8);
+    voice_count=text_count=0;touch=1;
+    fingerprint_proc();tick+=65000;fingerprint_proc();
+    assert(!admin_verified_flag && tx_count==0 && voice_count==0 && text_count==0);
+    password_len=3;press(16);assert(password_len==3);
+    admin_error_count=0;password_len=6;memset(password_buf,'1',6);press(16);
+    assert(!admin_verified_flag && admin_error_count==1);
+    password_len=6;memcpy(password_buf,admin_password,6);fingerprint_proc();
+    assert(!admin_verified_flag && tx_count==0);press(16);
+    assert(admin_verified_flag && finger_pending && admin_error_count==0);
+    assert(played==VOICE_TRACK_FINGER_ADMIN);
+    // No finger: do not play enrollment or failure, and do not write LCD text.
+    touch=0;voice_count=text_count=0;fingerprint_proc();tick+=65000;fingerprint_proc();
+    assert(finger_operation==2 && tx_count==0 && voice_count==0 && text_count==0);
+    touch=1;fingerprint_proc();expect(7);ack_code(0x0C);expect(1);
+    ack_code(0);expect(2);ack_code(0);expect(1);fingerprint_proc();
+    assert(played==VOICE_TRACK_FINGER_ENROLL && voice_count==1 && text_count==0);
+    ack_code(0);expect(2);ack_code(0);expect(5);ack_code(0);expect(6);
+    assert(mode_flag==MODE_ADD_FINGER && voice_count==1);
+    ack_code(0);fingerprint_proc();
+    assert(mode_flag==MODE_UNLOCK && played==VOICE_TRACK_FINGER_SAVED);
+    assert(voice_count==2 && text_count==0);
+
+    // Transport errors never play mismatch voice; a real mismatch does.
+    reset();verify_to_search();finger_operation=1;
+    tick+=2000;fingerprint_proc();assert(voice_count==0 && lock_flag==1);
+    reset();verify_to_search();finger_operation=1;match[0]=9;feed(match,5,0);match[0]=0;
+    tick+=100;fingerprint_proc();assert(played==VOICE_TRACK_FINGER_WRONG && lock_flag==1);
+    // An in-flight valid match cannot bypass mode changes or a lockout.
+    reset();verify_to_search();feed(match,5,0);tick+=100;
+    finger_operation=1;mode_flag=MODE_CHANGE_PASSWORD;fingerprint_proc();assert(lock_flag==1);
+    reset();verify_to_search();feed(match,5,0);tick+=100;
+    finger_operation=1;password_lock_flag=1;fingerprint_proc();assert(lock_flag==1);
+    // Success opens once, clears errors, and waits for WAK to drop.
+    reset();verify_to_search();feed(match,5,0);tick+=100;
+    finger_operation=1;admin_error_count=password_error_count=2;fingerprint_proc();
+    assert(lock_flag==0 && played==VOICE_TRACK_FINGER_CORRECT);
+    assert(admin_error_count==0 && password_error_count==0);
+    lock_flag=1;tick+=7000;fingerprint_proc();fingerprint_proc();assert(lock_flag==1 && tx_count==0);
+    touch=0;fingerprint_proc();touch=1;fingerprint_proc();expect(1);
+    press(8);fingerprint_proc();assert(mode_flag==MODE_ADD_FINGER && !admin_verified_flag);
+    puts("PASS: V6.4 frames/timing, WAK gating/release, continuous enrollment,");
+    puts("Flash slot scan/reboot/full/error, match/framing/timeout/cancel,");
+    puts("administrator authorization, voices, mode exit, lockout, single open");
+    return 0;
+}
+'''

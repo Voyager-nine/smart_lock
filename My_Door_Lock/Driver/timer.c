@@ -63,6 +63,7 @@ void TIM3_IRQHandler(void)
     if(TIM_GetITStatus(TIM3, TIM_IT_Update) != RESET)
     {
         tick_ms++;
+        uart7_timeout_1ms();
         // 密码连续错误后的输入锁定计时
         if(password_lock_flag)
         {
@@ -154,7 +155,7 @@ void lock_proc(void)
         lock_auto_close_voice_flag = 0;
         if(lock_flag == 1)
         {
-            voice_play(VOICE_TRACK_LOCKED);
+            lcd_prompt(LCD_PROMPT_LOCKED);
         }
     }
 }

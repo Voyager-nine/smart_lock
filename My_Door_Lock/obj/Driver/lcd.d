@@ -28,7 +28,8 @@ Driver/lcd.o: ../Driver/lcd.c E:\2_Code\CH32\My_Door_Lock\Debug/debug.h \
  E:\2_Code\CH32\My_Door_Lock\User/ch32v30x_it.h \
  E:\2_Code\CH32\My_Door_Lock\Peripheral\inc/ch32v30x_misc.h \
  ../Driver/lcd.h ../Driver/mydefine.h ../Driver/timer.h ../Driver/key.h \
- ../Driver/voice.h ../Driver/uart.h ../Driver/font_ascii_16x8.h
+ ../Driver/voice.h ../Driver/uart.h ../Driver/as608.h \
+ ../Driver/font_ascii_16x8.h
 
 E:\2_Code\CH32\My_Door_Lock\Debug/debug.h:
 
@@ -99,5 +100,7 @@ E:\2_Code\CH32\My_Door_Lock\Peripheral\inc/ch32v30x_misc.h:
 ../Driver/voice.h:
 
 ../Driver/uart.h:
+
+../Driver/as608.h:
 
 ../Driver/font_ascii_16x8.h:
