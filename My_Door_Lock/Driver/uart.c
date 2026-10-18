@@ -30,6 +30,16 @@ void uart7_timeout_1ms(void)
     }
 }
 
+void uart7_discard_frame(void)
+{
+    USART_ITConfig(UART7, USART_IT_RXNE, DISABLE);
+    uart7_rec_index = 0;
+    uart7_rec_tick = 0;
+    uart7_rec_ready = 0;
+    uart7_rec_overflow = 0;
+    USART_ITConfig(UART7, USART_IT_RXNE, ENABLE);
+}
+
 // 返回包长度；frame 需至少20字节，尚未收完时返回0
 u8 uart7_read_frame(u8 frame[20])
 {
@@ -40,6 +50,15 @@ u8 uart7_read_frame(u8 frame[20])
 
     USART_ITConfig(UART7, USART_IT_RXNE, DISABLE);
     len = uart7_rec_index;
+    if(len > 20)
+    {
+        uart7_rec_index = 0;
+        uart7_rec_tick = 0;
+        uart7_rec_ready = 0;
+        uart7_rec_overflow = 0;
+        USART_ITConfig(UART7, USART_IT_RXNE, ENABLE);
+        return 0;
+    }
     for(i = 0; i < len; i++)
         frame[i] = uart7_rec_string[i];
     uart7_rec_index = 0;

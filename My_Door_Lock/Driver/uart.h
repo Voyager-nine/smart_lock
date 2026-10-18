@@ -17,6 +17,7 @@
 #define UART3_RX_PIN GPIO_Pin_11
 
 #define UART7_BAUDRATE 115200
+#define UART7_FRAME_CAPACITY 44
 #define UART7_TX_PORT GPIOC
 #define UART7_TX_PIN GPIO_Pin_2
 #define UART7_RX_PORT GPIOC
@@ -26,13 +27,14 @@ extern volatile uint8_t uart3_rx_data;
 extern volatile uint8_t uart3_rx_flag;
 extern volatile uint8_t uart7_rx_data;
 extern volatile uint8_t uart7_rx_flag;
-extern volatile u8 uart7_rec_string[20];
+extern volatile u8 uart7_rec_string[UART7_FRAME_CAPACITY];
 extern volatile u8 uart7_rec_index;
 extern volatile u8 uart7_rec_tick;
 extern volatile u8 uart7_rec_ready;
 
 void uart7_receive_byte(u8 data);
 void uart7_timeout_1ms(void);
+void uart7_discard_frame(void);
 u8 uart7_read_frame(u8 frame[20]);
 
 void Usart2_Init(void);

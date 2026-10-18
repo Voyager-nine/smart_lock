@@ -10,6 +10,7 @@ typedef struct
 task_t scheduler_task[] = {
         {key_task,10,0},
         {card_proc,10,0},
+        {as608_task,10,0},
         {lock_proc,10,0},
         {lcd_task,100,0}
 };

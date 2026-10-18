@@ -2,7 +2,7 @@
 #include "pic.h"
 #include "scheduler.h"
 
-volatile u8 uart7_rec_string[20]={0};
+volatile u8 uart7_rec_string[UART7_FRAME_CAPACITY]={0};
 volatile u8 uart7_rec_index;
 volatile u8 uart7_rec_tick;
 volatile u8 uart7_rec_ready;
@@ -83,25 +83,6 @@ int main(void)
     as608_init();
     scheduler_init();
 
-    PS_GetImage();
-    Delay_Ms(1000);
-    usart1_send_string(uart7_rec_string, 15);
-    Delay_Ms(1000);
-
-    PS_GenChar(1);
-    Delay_Ms(1000);
-    usart1_send_string(uart7_rec_string, 15);
-    Delay_Ms(1000);
-
-    PS_GetImage();
-    Delay_Ms(1000);
-    usart1_send_string(uart7_rec_string, 15);
-    Delay_Ms(1000);
-
-    PS_GenChar(2);
-    Delay_Ms(1000);
-    usart1_send_string(uart7_rec_string, 15);
-    Delay_Ms(1000);
     while(1)
     {
         scheduler_run();
